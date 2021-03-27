@@ -1,0 +1,251 @@
+1、funct(const char *path, const char *mode)
+为啥要const修饰？
+告诉用户，你可以放心地将参数传进来，这个函数不会去修改，替换你的参数。
+
+
+
+3、gcc -E 是进行预处理：解决所有‘#’开头的部分
+	   -D FILE_OFFSET_BITS=64，编译时加一个宏
+	   如果是经常用到的宏，可以添加到makefile中的CFLAGS中，之后每次make时，都会追加执行"-D ..."
+	   
+！！！用make快速编译一个.c文件，直接“make 文件名”
+
+
+4、调用不熟悉的函数时，先man查看函数时，看看需要包含哪些头文件。将它们都加进自己的程序中。
+如int *p = malloc(sizeof(int)); 没有加stdlib的头文件，但强行类型转换后也能编译通过，但这不是解决问题，而是掩盖问题！！！
+
+	
+6、如果存在逆操作（fopen,fclose 或 enqueue,dequeue），那么返回指针所对应的结构体存储空间，是放在堆上的。
+
+7、是资源一定有上限
+
+8、整体缩进，:3,24> 第3行到第24行缩进
+	按v进入visual状态，选择多行，用>或<缩进或缩出
+	
+在/etc/vim/vimrc末尾添加
+set smartindent  
+set tabstop=4  
+set shiftwidth=4  
+set expandtab  
+set softtabstop=4  
+
+9、ulimit -a可以查看系统限制。
+
+10、ll tmp 查看fopen创建的文件权限，发现是664，fopen没有开放给用户去指定文件的权限，那664这个权限是怎么来的？
+依据的是一个公式 ： 0666 & ~umask	(权限中的数为8进制，最大值为'111')
+直接命令行输入umask，发现umask为0002
+
+
+12、为什么fgetc返回的是int而不是char
+通过man fgetc查看其返回值：fgetc(), getc() and getchar() return the character read as an unsigned char cast to an int or EOF  on end of file or error.
+返回时，unchar型会被转换为int，因为读到文件尾时需要返回的是EOF（-1）, 如果为char型，-1与0XFF相等，会发生冲突。
+
+13、diff file1 file2	比较两个文件是否相同，相同的话终端什么都没有
+
+14、vim，按v选中，按u撤销
+
+15、int main(int argc, char **argv)
+中argc为命令行输入的字符串个数，argv[i]存储命令名和文件名
+如./mycpy /etc/services /tmp/out	//argc为3，argv[0]="./mycpy",argv[1]="/etc/services"
+在函数开头可以利用argc判断传入参数是否正常
+
+16、man 后，/name，进行查找。
+
+17、暂时隐藏当前文件的行号，:set nonu，便于复制。
+	查看当前文件名和所在行号，:f
+
+18、vim下，按esc，光标停留在一个函数上，shitf+k 可以直接跳到man查看说明
+
+19、（了解）文件的缓冲模式是可以改的，setvbuf函数
+
+20、在代码量没上去前，我们更应该注重可读性（注释！）和正确（逻辑正确，不代表程序正确），而非效率。‘
+
+21、不必太着急，去打破沙锅问到底这个习惯，在不同环境效果不同，比如在你对当前整体知识点没有太多的了解，打破沙锅问到底只会让你越学越乱。这时我们需要短时间的暂时的拿来主义。
+
+22、buf是写的加速机制，cache是读的加速机制
+
+23、阻塞是一种死心眼的实现，条件不成熟的话就死等（如打印机）；非阻塞是尝试做，能做的话就做，做不了先也不干等，先回去，可能进行后续操作，或过一会儿再来看。
+
+24、C语言中没有重载函数，有变参函数（如printf）;如何区别？如何验证一个函数是用变参还是重载实现的？
+变参，函数也不知道自己有多少个参数；传入多个参数，进行编译，如果报错说明是重载（定参），如果编译通过说明是变参。
+
+25、gcc -Wall 将所有警告都打印出来。（gcc编译比较圆滑，但warning中有部分可能已经构成了错误）
+所以要将警告调到没有为止！！！除非那个警告是你能解释出来的。
+
+26、strace ./binfile	跟踪系统调用 
+
+27、查找内存大于...的文件 sudo find / -size +1G
+/proc/kcore
+
+28、测试一个命令的运行时间 time ./mycpy 100Mfile /tmp/out
+三个时间：real、user、sys 
+real = user + sys + 系统调用时间，系统调用时间无法改变，程序员只用关心user和sys时间。
+
+29、r+:读写，文件一定存在；w:只写，文件不存在则创建
+
+30、少用rm，用mv将没用的文件移动到/tmp/out中，、将/tmp/out视为一个垃圾回收站。
+
+31、刚编程的学生，宏观编程能力没有，微观编程能力特别强。。。
+写的是模块，而不是main函数。执行模块之前的状态和执行之后的状态要保持不变。（做操作之前将要保存的东西保存起来，处理完成后要还原）
+
+32、不要有内存泄漏，不要有越界的情况，不要当作自己在写main函数，要当作自己在写小模块。
+
+33、直观的，一下子想到的思路往往是比较笨的思路。
+
+34、cmd --长格式 -短格式 非选项的传参
+	创建一个“-a“文件：
+	touch -- -a 	“--”用于表示选项传参结束
+	touch ./-a		加上路径
+
+35、tags工具，为源码的变量/对象、结构体/类、函数/接口、宏等产生索引文件，以便快速定位。
+
+vim -t off_t 	打开定义off_t的文件
+
+快捷键：
+	把光标移到变量名或函数名上，然后按下“Ctrl+]”，这样就能直接跳到这个变量或函数定义的源文件中，并把光标定位到这一行。用“Ctrl+t”可以退回原来的地方。
+
+36、lseek(fd,5*1024*1024*1024-1,SEEK_SET)错误，整数溢出
+只有数值没有单位，被当成int处理了。如何改？
+(5*1024*1024*1024-1)LL	-->不对，作为int计算时已经溢出了
+5LL*1024LL*1024LL*1024LL-1LL -->正确，数值要带单位
+
+37、耍花枪，得意洋洋写的程序，往往是容易出问题的地方。
+
+38、man 2 系统调用 / man 3 库函数 
+
+39、du 查看一个文件占磁盘空间的大小（单位为k字节数）
+
+40、每句都要写校验。
+
+41、递归优化，有意识地将可以不放在栈中的内容都拿出去。
+如果一个变量的使用，完全是在递归点之前的或者只在静态点之后出现，则可以将其放到静态区中。
+
+42、tail -f /tmp/out	-f表示动态查看某文件的文件尾
+
+43、echo $? 打印上一条语句的执行状态
+
+44、time ./primer0 > /dev/null	//仅打印时间，./primer0输出结果到/dev/null
+
+45、./primer0 | wc -l 	//统计输出次数
+
+46、killall name  //终止进程
+
+47、date +%s	打印时戳
+
+48、没有包头文件，看不到原型，会有警告
+
+49、合并文件
+合并1,2到3：	cat 1 2 >> 3
+追加1到2：		cat 1 >> 2
+
+50、github基本流程：
+	git init
+	git add .
+	git commit -m "first commit"
+	git remote add origin git@github.com:cral-freedom/APUE.git
+	git push -u origin master
+	
+51、kill -l 查看信号
+1-31，属于标准信号（其中SIGUSE1/SIGUSER2是预留给用户的）；32-64信号名字从SIGRTMIN到SIGRTMAX，属于实时信号。
+（kill -SIGALRM pid	//给某进程发信号）
+
+
+
+52、程序出现段错误，就是一个典型的core文件的产生，不过ulimit -a查看知道，
+我们没有让它产生core文件，因为段错误比较常发生。
+（if(fp = NULL)可引发段错误，但ls没有core文件，可通过修改ulimit允许用户产生core文件）
+
+
+53、vim多标签
+vim * -p //打开当前目录下的所有文件
+
+切换标签
+	:tabr	跳到第一个标签
+	:tabl	跳到最后一个标签
+	:tabn	下一个标签，快捷方式gt
+	:tabp	上一个标签，快捷方式gT
+	
+关闭与保存
+	:wall	保存所有标签
+	:qall	退出所有标签
+	:q		关闭当前标签
+	:only	只保留当前标签
+
+新建文件	
+	:tabnew
+
+54、vim下替换
+:%s/sour_string/dest_string/g
+
+
+55、typedef void (*funptr) (int);
+	typedef void func_t (char *);	//定义变量func_t *job
+
+
+56、makefile:3: *** missing separator (did you mean TAB instead of 8 spaces?).  Stop.
+原因：
+	As the other answer suggested, Makefiles need tab characters, not space characters. I have my .vimrc set to automatically replace all tabs with spaces,
+so I have to manually set the reverse setting in individual Makefiles. The vim command that I use is as follows:	
+	:%s/^[ ]\+/\t/g
+
+
+57、SIGQUIT的快捷方式是ctrl+\
+
+58、shell命令行中，可以写while true; do kill - ALRM 15148; done，一直往进程中发往信号。
+
+
+59、ls -ltr 文件按最后的修改时间排序，最早的文件最前。
+
+60、查看线程	ps axm	/ 	ps ax -L
+	线程消耗进程号
+	
+61、安装indicator-sysmonitor，实时显示CPU/内存使用率
+https://www.cnblogs.com/EasonJim/p/7130171.html
+
+62、不要把过多的操作交给用户来处理
+
+63、查看各类信息：https://my.oschina.net/hunterli/blog/140783
+
+64、基本功：
+	精通两门语言，一门脚本（SHELL），还有扎实的网络知识
+
+65、
+	ip ro sh	//查看路由信息
+	ip ro add default via 192.168.174.5	//添加路由
+	
+66、ubuntu系统启动后进入（initramfs）
+	使用fsck -y /dev/sda1(看提示的盘) 命令修复。修复完毕重启reboot重启。
+	
+67、netstat -anu	//查看打开的UDP端口
+	netstat -ant	//查看打开的TCP端口
+	nc ip port		//请求某端口的内容
+	
+68、hostname -I 查看当前ip地址
+	sudo ufw disable 关闭防火墙
+	
+	eog xxx		//eog是解码器，用于查看图片
+
+69、 int dup2(int oldfd, int newfd);
+若参数newfd已经被程序使用，则系统就会将newfd所指的文件关闭，若newfd等于oldfd，则返回newfd,而不关闭newfd所指的文件。
+返回值：若dup2调用成功则返回新的文件描述符，出错则返回-1. 
+
+70. du -h xxx 查看文件大小
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

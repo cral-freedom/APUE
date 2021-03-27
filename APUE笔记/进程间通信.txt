@@ -1,0 +1,217 @@
+				进程间通信
+
+通信方式分类：				
+	位于同一台主机上的		----	管道、XSI		
+		有亲缘关系
+		没有亲缘关系
+		
+	位于不同主机上的		----	socket
+
+1、管道
+	①内核提供，单工
+	②自同步机制（迁就比较慢的一方）
+	③管道要凑齐读写两方才能进行操作
+	④两个管道协同，可实现双工
+	
+	匿名管道（磁盘看不到，有亲缘关系的进程间通信）
+		pipe();//pd[0]读端 [1]写端
+		
+	命令管道（实际是一个p文件）
+		mkfifo();//创建命令管道，man 3 mkfifo
+		(mkfifo namedfifo 命令行创建)
+		
+
+关于效率：想象整个程序是多段粗细不同的水管衔接起来的；限制整体流速的是最细的那一段，
+所以要优化，提高效率，需要找到结症所在；即使你把直径10M的水管换成100M，但因为最细的那段水管
+是1M的，所以之前做的工作对整体效率没有任何提升，是无用功。
+
+
+2、XSI -> SysV
+	IPC	-> Inter-Process Communication
+	主动端：先发包的一方
+	被动端：先收包的一方（被动端先运行，创建通信机制）
+	
+	
+	key：确保两个没有亲缘关系的进程，拿到同一个通信机制（同一个msgid）
+	
+		ftok();//类似哈希
+		key_t ftok(const char *pathname, int proj_id);
+		pathname：文件名，实际要的是inode（唯一性）
+		proj_id：杂质
+
+	
+	xxxget();创建	xxxop();发送/接收	xxxctl();初始化/销毁
+
+	
+	Message Queues
+
+	int msgget(key_t key, int msgflg);
+	参数：
+		key：如果是IPC_PRIVATE，则用于有亲缘关系的进程间通信；
+			 如果是普通的key值，则msgflg中要有IPC_CREAT，创建消息队列
+	返回值：成功返回msgid，否则返回-1，设置errno
+	
+	ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp,
+                      int msgflg);
+
+
+	①消息队列有一个缓存的机制，即使发送端在没有创建msg实例前，先snd了几次，
+	 接收端随后运行时还是能收到发送端发送的内容
+	②不是严格意义上的队列，msgrcv中有个msgtyp，可以选择接收特定的包，不是严格意义上的先进先出 
+	③如果进程异常退出，创建的消息队列没有被销毁（ipcs查看当前存在的通信机制）
+	 ipcrm -q msqid（命令行删除某个消息队列）
+
+	Semaphore Arrays（信号量数组）
+	
+	有A,B两种资源的情况时，如果不用信号量数组进行控制，
+	让一个进程单独拿到A资源或B资源，容易乱进程僵/饿死
+	（1号抢A，等待B，B被2号占有；2号占有B，又在等待A）
+	
+	如果信号量数组只有1个元素，就是我们之前学的信号量，控制一种资源的使用；
+	如果只有1个元素，且元素中只有一个资源量，就是我们之前学的互斥量。
+	
+	希望进程在取资源时，要么获得需要的全部资源，要么不占用任何资源。
+	
+	int semget(key_t key, int nsems, int semflg);//nsems为数组大小
+	int semctl(int semid, int semnum, int cmd, ...);//semnum为数组下标，cmd为SETVAL时，设置资源总量
+	int semop(int semid, struct sembuf *sops, size_t nsops);//sops为结构体数组首地址，nsops为数组大小
+	struct sembuf：
+		 unsigned short sem_num;  /* semaphore number */
+           short          sem_op;   /* semaphore operation */
+           short          sem_flg;  /* operation flags */
+	//sem_num为信号量数组下标，sem_op可正可负，负表示取资源，正表示还资源
+	
+	
+	
+	Shared Memory
+	
+	shmget();
+	void *shmat(int shm_id, const void *shm_addr, int shmflg);	//attch
+	参数：
+		shm_addr，可以为NULL，让系统在当前进程中找到合适的地址，然后将共享内存映射过来
+		shmflg，一般为0
+	返回值：失败返回(void *)-1。
+	
+	int shmdt(const void *shmaddr);//detach，将共享内存从当前进程分离
+	
+	shmctl();
+
+
+
+3、网络套接字sockekt
+	讨论：跨主机的传输要注意的问题
+	1、字节序问题：
+		大端：低地址处放高字节
+		小端：低地址处放低字节
+		
+		解决：
+		主机字节序：host
+		网络字节序：network
+		_ to _ _ : htons,htonl,ntohs,ntohl（最后的字符指长度short, long）
+		（纯文本传输不用转换）
+	
+	2、对齐：
+		struct
+		{
+			int i;
+			float f;
+			char ch;
+		};	//占12个字节
+		解决：不对齐
+	
+	3、类型长度问题
+		int 
+		char
+		解决：int32_t, uint32_t, int8_t, int64_t
+	
+	
+	int socket(int domain, int type, int protocol);
+	
+
+	多播：https://blog.csdn.net/jmq_0000/article/details/7095727
+
+	
+	报式套接字
+	
+		被动端（先运行，服务器）
+			socket();
+			bind();
+			recvfrom();//addrlen要初始化，不然第一次发送会失败
+			close();
+			
+		主动端：（客户端）
+			socket();
+			sndto();
+			close();
+			
+		inet_pton();//转换ip4或ipv6地址（点分式）为整型数
+		inet_ntop();//将大整数转换成点分式的ip地址
+
+
+/***************************************************
+	laddr.sin_family = AF_INET;
+    laddr.sin_port = htons(atoi(RCV_PORT));
+    inet_pton(AF_INET,"0.0.0.0",&laddr.sin_addr);
+
+    if(bind(sd,(void *)&laddr,sizeof(laddr)) < 0)//bind a name to socket
+    {
+        perror("bind()");
+        exit(1);
+    }
+****************************************************/
+	
+		
+		man 7 ip	(ipv4)
+		struct sockaddr_in {
+               sa_family_t    sin_family; /* address family: AF_INET */
+               in_port_t      sin_port;   /* port in network byte order */
+               struct in_addr sin_addr;   /* internet address */
+           };
+		
+		与struct sockaddr *src_addr不同，用(void *)转化；
+		
+		
+		多点通讯：广播（全网广播，子网广播），多播/组播
+		
+		setsockopt();
+		getsockopt();
+		
+		广播：(man 7 socket)
+		level：SOL_SOCKET
+		optname：SO_BROADCAST
+	
+		多播组：（man 7 ip）
+		level：IPPROTO_IP
+		
+		客户端创建的socket要和广播的ip和端口绑定，这样才可以将数据收上来，不然就会被过滤掉。 
+		optname：IP_MULTICAST_IF，设置组播的默认默认网络接口
+				 IP_ADD_MEMBERSHIP，加入多播组
+		
+		UDP: 丢包 -- 原因：阻塞		解决：闭环流控（停等式流控）
+		TTL：能够经过的路由的个数（Linux环境下默认为64，Windows下默认为128）
+		
+		漏桶、令牌桶：没有校验，开环流控
+		停等式流控：闭环流控，确保能够收到包，但并没有降低丢包率
+		
+	
+	流式套接字
+		能保证收到的消息是正确的
+		已经建立了点对点的连接
+		socket();
+		bind();
+		listen();
+		accept();
+		send();
+		close();
+		
+		异常退出后，如果端口没有被及时回收，再次bind会报错；
+		解决：setsockopt()，SO_REUSEADDR参数。
+		
+
+
+
+
+
+
+
+

@@ -1,0 +1,360 @@
+					并发（信号、线程）
+
+同步，用户知道什么时候发生什么事件
+异步，这个事件什么时候到来不知道，会产生什么结果不知道。
+
+异步事件的处理：查询法，通知法
+发生频率稀疏---通知法（但是也要有相应的机制监听）
+
+
+一、信号
+
+1、信号的概念
+	信号是软件层面的中断。信号的响应依赖于中断。
+
+2、signal()
+#include <signal.h>
+typedef void (*sighandler_t)(int);	//sighandler_t是函数指针，返回值为void，参数为int
+sighandler_t signal(int signum, sighandler_t handler);
+@param：
+	signum：为信号编号，如SIGINT表示终端中断符，ctrl+c是其快捷方式
+	handler：为函数指针，或SIG_IGN忽略信号，或SIG_DFL默认动作
+@return：上一个信号的行为
+
+void ( *signal(int signum, void (*func)(int)) )(int)
+//头文件中没有sighandler_t的定义，每次要用时在文件头加typedef void (*sighandler_t)(int);
+
+C语言的缺陷之一：名空间管理不善，如果名字冲突就完蛋了。
+
+信号会打断阻塞的系统调用。
+	查看man手册知open存在返回值为EINTR的情况，当阻塞等待打开一个慢设备时，调用可能被信号打断。
+	所以在使用阻塞系统调用时，要判断是真错还是假错（被信号打断）
+	
+3、信号的不可靠
+	信号的行为不可靠，执行现场是由内核布置的，有可能第一次调用还没结束就发生了第二次调用。
+	
+4、可重入函数
+	所有的系统调用都是可重入的，一部分库函数也是可重入的，如memcpy
+
+一些库函数其本身是不可重入的，所以需要额外的_r版本函数，
+如rand_r,localtime_r,,,专门用于信号处理。
+
+
+
+5、信号的响应过程
+
+2个位图，mask，pending，理论上是32位的。
+mask是信号屏蔽字（初始全为1），pending位图（初始全为0）
+
+从内核回到用户态时要进行mask&pending，如果有信号到来(pending对应位为1)，则将mask，pending中的信号位归0，
+栈中PC寄存器值表示的执行位置地址换成int_handler函数地址；响应完成后，mask对应信号位恢复，
+PC寄存器值也恢复原来的执行位置。
+
+信号从收到到响应有一个不可避免的延迟。
+	信号是进程从kernel回到user的路上响应的。
+思考：如何忽略掉一个信号？
+		SIG_IGN实现实际就是将mask中表示某信号的位置0
+	  标准信号为什么要丢失？
+		位图不会计数
+	  标准信号的响应没有严格的顺序
+	  不能从信号处理函数中随意的往外跳。（可能会错过mask的恢复过程，sigsetjump,siglongjump）
+
+6、常用函数
+	kill();//发信号，int kill(pid_t pid, int sig);
+		参数pid: 
+			>0，发送信号到对应pid的进程
+			 0，当前进程的进程组广播（组内广播）	
+			-1，发送信号到init以外的所有进程（全局广播），一般是Init进程用来广播通知所有进程终止。
+		   <-1，发送信号到ID为|-pid|的进程组中的所有进程（特定gid的组广播）。
+		参数sig：为0时，不会发送信号，用于测试一个进程或进程组是否存在		errno：EPERM，没有发送信号的权限；ESRCH，进程或进程组不存在
+	
+	
+		
+	raise();//发送信号给当前进程，int raise(int sig);
+
+
+	alarm();//设置时钟信号，unsigned int alarm(unsigned int seconds);
+		当seconds倒计时到0，产生SIGALRM信号，默认动作是终止当前进程。
+		有些平台sleep是用alarm+pause封装的。所以不要在程序中混用alarm和sleep。
+	
+	pause();
+	abort();
+	
+	system();
+		想要在有信号的进程当中使用system，需要blocked掉SIGCHLD，ignored掉SIGIINT和SIGQUIT。
+	
+	sleep();的替代函数：
+		nanosleep();
+		usleep();
+		select();
+	
+gcc -S 5sec_sig.c -O1	//对源文件进行优化，获取其汇编文件
+死循环while(loop)，因为是去内存中取的loop的值，没有变过。
+volatile，去这个变量的真正空间取数值。
+
+gcc 5sec_sig.c -O1，优化之后，5s计数值count是原来的7倍。
+	
+
+令牌桶，闲着（无数据到来），就token++ （攒权限）。
+
+	
+7、信号集
+	信号集类型：sigset_t
+	sigemptyset();
+	sigfillset();
+	sigaddset();
+	sigdelset();
+	sigismember();
+
+
+8、信号屏蔽字/pending集的处理
+	sigprocmask();//设置信号屏蔽字，可以决定信号什么时候响应。
+	
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+//set是信号集合，how是处理/操作方式
+
+
+
+
+9、扩展
+	sigsuspend();//wait for signal，原子操作；
+	解除某个信号集的阻塞状态，马上进入等待信号阶段，信号一定会砸到sigsuspend();
+	
+	pause()的缺陷：不用用于信号驱动程序（有信号到来才能继续执行）
+	信号驱动程序中，不能用pause()来等待一个信号，因为它是非原子操作，信号砸不到pause()上。
+
+//when receive the signal, use oset replace set, then block and wait the next signal
+    sigsuspend(&oset);
+
+	
+	
+	sigaction();//用来替换signal();
+	
+	signal()中的缺陷：
+		多个信号可以共用一个信号处理函数，容易发生重入。
+		没有区别信号的来源，容易被别的用户干涉。
+	
+	int sigaction(int signum, const struct sigaction *act,
+                     struct sigaction *oldact);
+	struct sigaction {
+               void     (*sa_handler)(int);		
+               void     (*sa_sigaction)(int, siginfo_t *, void *);
+               sigset_t   sa_mask;
+               int        sa_flags;
+               void     (*sa_restorer)(void);
+           };
+	
+	①sa_handler和sa_sigaction不能同时设置，可以理解为它俩是共用体；
+	②sa_mask:在响应当前信号时，还需要将哪些信号block住；
+	③三参的信号处理函数：
+		int是信号类别，当多个信号可以共用一个信号处理函数时有意义；
+		siginfo_t是信号属性结构体，其中最常用的是sig_code（从哪来，用户，内核，信号队列，，，）
+				 从而可以决定是否响应该信号，使其只响应从指定位置来的信号。
+		void *，第三个参数不再使用，原来为ucontext_t *类型，保存信号响应之前的上下文
+	
+	setitimer();//用来替换alarm();
+	setitimer()，设置时钟周期，误差不累积，精度到us。
+	倒计时到0时发送时钟信号，且会将it_interval赋给it_value，进入下一个周期。
+	例：使用单一计时器，利用alarm或setitimer构造一组函数，实现任意数量的计时器。
+	
+10、实时信号
+	实时信号是要排队的，它的响应是有顺序要求的。
+	既收到实时信号又收到标准信号，先响应标准信号。
+	实时信号不丢失。
+
+
+11、SIGCHLD信号
+
+！！！！对于某些进程，特别是服务器进程往往在请求到来时生成子进程处理请求。
+如果父进程不等待子进程结束，子进程将成为僵尸进程（zombie）从而占用系统资源。
+如果父进程等待子进程结束，将增加父进程的负担，影响服务器进程的并发性能。
+在Linux下可以简单地将 SIGCHLD信号的操作设为SIG_IGN。
+
+	
+对于SIGCHLD信号，如果我们定义为：
+
+1.SIG_DFL：默认的处理方式是不理会这个信号，但是也不会丢弃子进行状态，所以如果不用wait，waitpid对其子进行进行状态信息回收，会产生僵尸进程。
+2.SIG_IGN：忽略，此时我们的子进程终止的时候，有init进程进程回收，所以不会产生僵尸进程。（不需要要在父进程中调用wait()）
+
+
+如果调用sigaction（）函数，且sa_flag中设置了SA_NOCLDWAIT标志，则子进程终止时候，不产生僵尸进程，“同时不向父进程发送SIGCHLD信号”
+
+
+
+二、线程
+
+会话承载进程组，进程组承载进程，进程承载线程。
+
+1、线程的概念
+	一个正在运行的函数
+	多个线程的地址空间是共享的（代码段是共用的，栈是独立的）
+	posix线程是一套标准，而不是实现
+	openmp线程
+	线程标识：pthread_t（p是指posix标准）
+	线程消耗进程号(ps ax -L 查看线程，LWP)
+	编译和链接都要带-pthread。
+	线程的调度取决于调度器的调度策略
+	
+	
+	pthread_equal();//比较两个线程
+	pthread_self();//返回当前线程标识
+
+2、线程的创建
+	pthread_create();
+	//参数：pthread_t的地址，指定属性，入口函数地址，函数参数
+	//返回值，成为返回0；失败返回error number，用strerror辅助报错
+	
+   线程的终止
+	3种方式：
+		1）线程从启动例程返回，返回值就是线程的退出码
+		2）线程可以被同一进程中的其它线程取消（异常）
+		3）线程调用pthread_exit()
+	pthread_join	--->	wait
+   
+   栈的清理
+	pthread_cleanup_push();
+	pthread_cleanup_pop();
+	//比钩子函数多了主动权，pthread_cleanup_pop可以选择压栈的函数是否被调用
+	//要成对出现，pop操作一定要有，如果放到pthread_exit后面，则都当成1。
+	
+   线程的取消选项
+	pthread_cancel();
+		取消有两种状态：允许和不允许；
+		允许取消又分为异步cancel和推迟cancel(默认)，推迟至cancel点再响应
+		cancel点：POSIX定义的cancel点，都是可能引发阻塞的系统调用
+		
+	pthread_setcancelstate()：设置是否允许取消
+	pthread_setcanceltype()：设置取消方式
+	pthread_testcancel()：本函数什么都不做，就是一个cancel点
+		
+   线程分离
+	pthread_detach(); 设置线程的分离属性，其它线程不能对它回收
+
+
+线程竞争：
+	代码段是共用的，栈是独立的。
+
+3、线程同步
+
+互斥量（某一时刻只能有一个人在小黑屋里写或读写（更严格））
+	pthread_mutex_t;
+	pthread_mutex_init();
+	pthread_mutex_destory();
+	pthread_mutex_lock();		//阻塞
+	pthread_mutex_trylock();	//非阻塞
+	pthread_mutex_unlock();
+
+	sleep();放大竞争和故障。
+	
+	sched_yield();//出让CPU使用权
+	
+	互斥锁，不是限制某个资源某个变量的读写，而限制代码能否运行下去。
+	我们将被限制的代码区称为临界区。
+
+	(man pthread_mutex_init可能失败，要安装manpages-posix-dev)
+
+线程池：
+	例：primer_pool_busy.c（查询法）
+	维护一个num线程池，main（上游线程）分配任务，N个线程（下游线程）到池中抢任务并计算
+	main线程分发数字（任务），>0为有任务，=0当前任务被完成，=-1没有任务可以分发了；
+	其它线程抢任务，计算完成后将num清0；如果num为-1,线程跳出循环结束。
+
+	要注意临界区内的所有跳转语句，如果是跳转出临界区外，则跳转前要解锁，避免造成死锁。
+	临界区内的调用函数要能返回。
+	
+	动态模块的单次初始化函数：pthread_once();
+
+条件变量
+	pthread_cond_t
+	phtread_cond_init();
+	phtread_cond_destroy();
+	pthread_cond_broadcast();
+	pthread_cond_signal();
+	pthread_cond_wait();	
+
+信号量
+	限制某时刻使用资源的用量
+
+读写锁
+	读锁 ---> 共享锁
+	写锁 ---> 互斥锁
+	避免写者饿死：如果有写者到来，后来的读者不能再读。
+	
+	
+4、线程属性
+	80%的问题用默认属性就可以解决。
+
+	pthread_attr_init();
+	pthread_attr_destroy();
+	pthread_attr_setstacksize();
+	pthread_attr_setdetachstate();
+   其它见man pthread_attr_init中的see also
+   
+   线程同步的属性
+	互斥量属性：
+		pthread_mutexattr_init();
+		pthread_mutexattr_destroy();
+		是否跨进程起作用：
+		pthread_mutexattr_getpshared();
+		pthread_mutexattr_setpshared();
+		clone();//可自定义地创建所需要的线程或进程
+		互斥量类型：
+		pthread_mutexattr_gettype();
+		pthread_mutexattr_settype();
+	条件变量属性：
+		pthread_condattr_init();
+		pthread_condattr_destroy();
+		。。。。
+	读写锁属性：
+		。。。。
+		
+
+5、重入
+   多线程中的IO
+		stdio默认都是支持多线程并发的，先lock缓冲区，东西放进去，unlock。
+		（也有不加锁的版本，可以尝试man getchar_unlocked查看）
+		
+   线程与信号
+			每个线程都有mask和pending位图，而进程只有一个pending位图。每个线程从内核态
+		退出时，先用mask与进程的pending按位与，再与线程的pending按位与。
+		
+		pthread_sigmask();
+		sigwait();
+		pthread_kill();
+   
+   
+   线程与fork
+
+6、openmp线程标准
+	www.OpenMP.org
+   
+
+用多线程重构：快排，链表，anytimer
+
+
+扩展实现：
+
+7、管道-池类算法
+	之前写的线程池程序primer_pool.c的效率低，因为池中只有一个任务，
+大部分时间线程还是处于等待状态。
+
+	循环队列（顺序存储）
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

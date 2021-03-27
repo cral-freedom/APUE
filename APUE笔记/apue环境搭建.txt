@@ -1,0 +1,11 @@
+从官网http://www.apuebook.com/下载src.tar.gz
+解压后，切换到apue.3e目录；(不用编译，因为下载的代码已经是编译好的了。如果再make，会遇到make: Nothing to be done for `all' 的错误。）
+
+复制文件：
+sudo cp ./include/apue.h /usr/include
+在/usr/include/apue.h中的#endif前面，即倒数第二行添加#include "error.c"
+
+sudo cp lib/error.c /usr/local/include
+
+
+

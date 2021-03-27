@@ -1,0 +1,80 @@
+文件IO（系统调用IO）
+
+文件描述符（fd）是在文件IO中贯穿始终的类型
+
+文件描述符的概念
+	整型数，数组下标，文件描述符优先使用当前可用范围内最小的
+
+文件IO操作相关函数： open,close,read,write,lseek
+①man 2 open
+	   #include <sys/types.h>
+       #include <sys/stat.h>
+       #include <fcntl.h>
+int open(const char *pathname, int flags);
+@param:
+	flags必须包括O_RDONLY, O_WRONLY, or O_RDWR中的一个.
+	还可以用位图的方式添加文件创建标志和文件状态标志
+
+@return:
+	成功返回fd, 失败返回-1
+
+creat():
+       creat()   is   equivalent   to   open()   with  flags  equal  to O_CREAT|O_WRONLY|O_TRUNC
+
+②man 2 read:
+
+#include <unistd.h>
+
+ssize_t read(int fd, void *buf, size_t count);
+@param：
+	count准备读取的字节个数
+@return:
+	成功返回读取的字节个数，所有读取完成返回0，失败返回-1
+
+off_t lseek(int fd, off_t offset, int whence);
+
+
+文件IO与标准IO的区别
+区别：响应速度&吞吐量
+文件IO响应速度快，及时性好；
+标准IO吞吐量大，效率高，整体速度快。
+
+转换：fileno fdopen
+提醒：文件IO和标准IO不可混用。
+标准IO的修改没有直接写到磁盘当中，而是写到了缓冲区（比如，修改word文档后，关闭时还要保存一下，原文件才会发生更改）。FILE*和fd两个结构体不是时刻同步的，所以它们之间往往是不同的，同时使用标准IO和文件IO的话，容易造成混乱。
+
+
+
+IO的效率问题：
+将mycpy.c中的BUFSIZE进行放大，并观察进程 所消耗的时间，注意性能最佳拐点出现时的BUFSIZE，以及何时程序会出问题。
+
+
+文件共享：多个任务共同操作一个文件或者协同完成作业
+面试：写程序删除一个文件的第10行
+补充函数：truncate/ftruncate 将文件截断为指定长度
+
+
+原子操作：不可分割的操作，解决竞争和冲突
+
+程序中的重定向：dup dup2
+
+int dup(int oldfd);//函数dup 允许你复制一个oldfd文件描述符。
+存入一个已存在的文件描述符，它就会返回一个与该描述符“相同”的新的文件描述符
+
+
+dup2(fd,fileno(stdout));//将标准输出重定向到目标文件test.txt
+
+
+同步：sync,fsync,fdatasync
+sync同步buffer和cache到磁盘。在解除设备挂载前，先sync，同步内核层面的buffer,cache。
+int fsync(int fd); //同步一个文件的buffer和cache
+int fdatasync(int fd); //只刷数据（文件有效内容），不刷亚数据（文件的属性）
+
+
+fcntl()：文件描述符的魔术均来源于该函数（管家级别的函数）
+
+ioctl()：设备相关的内容
+
+/dev/fd/ 目录：虚目录，显示当前进程的文件描述符信息
+
+

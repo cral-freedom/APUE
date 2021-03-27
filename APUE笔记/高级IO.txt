@@ -1,0 +1,119 @@
+
+									高级IO
+									
+非阻塞IO	----	阻塞IO	
+	
+补充：有限状态机编程
+
+1、非阻塞IO
+	简单流程：自然流程是结构化的（如open -> put -> close）
+	复杂流程：自然流程不是结构化的（网络协议）
+	
+	数据中继引擎：
+		（当我们指定打开的设备为O_NONBLOCK，read/write就不会阻塞；没有读到内容，
+		返回-1，设置errno为EAGAIN）
+		因此读完数据后状态机就会陷入忙推状态，一直在等待新的数据。
+		
+		调用read()时，没有其它进程以写的形式打开FIFO，则返回0。
+
+
+2、IO多路转接
+	监视文件描述符
+	
+	select();	//以事件为单位组织文件描述符；最古老，移植性好；接口设计有缺陷；
+	poll();		//以文件描述符为单位来组织事件；移植性也可以，用户自己来维护一些内容
+	epoll();	//方言
+
+以事件为单位组织文件描述符：
+int select(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, struct timeval *timeout);
+
+
+函数会阻塞直到：
+	①一个或多个文件描述符变成“ready”态
+	②被信号打断
+	③超时
+
+参数：
+	nfds：最大的文件描述符+1
+	三个集合：将发生变化的描述符以位图方式回写，没有变化则全部位清0，需要重新布置监视任务 
+	timeout：超时设置，NULL则阻塞
+返回值：
+	>0，	成功，返回三集合（读集，写集，异常集）中发生变化的fd个数
+	=0，	超时
+	-1，	失败，设置errno
+	
+文件描述符集合：fd_set（类似信号集sigset_t）
+	FD_CLR：从fd集合中删除指定fd；
+	FD_ISSET：判断fd是否属性某个集合
+	FD_SET：添加一个fd到集合
+	FD_ZERO：清空集体
+
+布置监视任务，监视，查看监视结果。
+
+缺陷：
+	监视现场和监视结果存放的是同一块空间
+	监视的事件太单一，除了读，写，其它都算是异常
+
+
+以文件描述符为单位来组织事件：
+int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+参数：
+	fds：结构体数组的起始地址
+	nfds：监视的fd个数
+	timeout：单位为ms，0表示非阻塞，-1表示阻塞
+
+struct pollfd {
+               int   fd;         /* file descriptor */
+               short events;     /* 我们关心的事件 */
+               short revents;    /* 实际返回的事件 */
+           };
+events，revents都是16位的位图，暂时可监视7种事件
+
+
+epoll：相当于将poll机制封装了一层，放到了内核当中。
+struct pollfd数组由内核维护，提供几个系统调用给用户使用。
+	epoll_create();	//创建一个epoll实例，参数现在是任意的正值，返回值是fd，可以用close关闭
+	epoll_ctl();	//EPERM  目标fd不支持epoll.
+	epoll_wait();
+
+
+3、其它读写函数
+
+读写多个buffers：
+	readv();
+	writev();
+坚持读写n个字节（apue.h）：
+	readn();
+	writen();
+
+
+4、存储映射IO
+	mmap();//有亲缘关系进程间通信，共享内存。
+	
+	void *mmap(void *addr, size_t length, int prot, int flags,
+                  int fd, off_t offset);
+	参数：	
+		addr：一般直接赋NULL，让内核随意找一块空间
+		prot：内存的读写权限设置
+		flags：特殊要求，MAP_SHARED和MAP_PRIVATE中的一个，再或上其它内容
+				如果有或上MAP_ANONYMOUS，匿名空间，内容初始化为0，不需要fd，直接设置-1
+		fd，offset，length：将文件的某个位置开始，length长度的内容映射到内存
+		
+	返回值：
+		成功返回首地址，失败返回MAP_FAILED
+
+	int munmap(void *addr, size_t length);
+	
+	
+5、文件锁
+	fcntl();
+	lockf();
+	flock();
+
+意外解锁现象：
+	文件锁是加在inode层面的，如果有多个fd指向一个inode，其中一个fd关闭，会造成其它fd意外解锁。
+
+加锁后写数据，解锁前要fflush刷新缓冲区。
+
+	

@@ -1,0 +1,235 @@
+进程基本知识
+
+1、进程标识符pid
+	pid_t （int16_t，3w多个进程），虚拟机技术，有可能不够用 
+	命令ps,  man ps 查找组合用法， ps axf
+	进程号是顺次向下使用。（与fd有区别）
+	getpid(); 	//获取当前进程的Pid
+	getppid();
+
+2、进程的产生
+	fork();
+①关键字：duplicating，复制，拷贝，一模一样，连运行到的位置都相同
+
+②fork后父子进程的区别：fork的返回值不一样，pid不同，ppid也不同，
+未决信号（还没来得及去响应的信号）和文件锁不继承，资源利用量归零
+
+③Init进程：1号，是所有进程的祖先进程。
+④fork成功，父进程中返回的是子进程的Pid，子进程中返回0；fork失败，父进程中返回-1，设置errno。	
+
+永远不要猜测父子进程哪先被调度，这是由调度器的调试策略决定的。
+非常重要！！！fork前fflush(NULL),刷新所有成功打开的流。
+
+
+zombie态在进程关系中是正常的（但通常是短暂性存在的），谁打开谁关闭，谁申请谁释放，子进程是父进程创建的，而如果父进程在忙，子进程终止后无人"收尸"，子进程就呈现Z+态。
+
+父进程终止，而子进程没有终止，子进程变成孤儿进程，最后会被Init进程接管（ps axf可以看到子进程的父进程为init进程）；孤儿进程占用的资源一般是比较少的，进程号比较宝贵。
+
+
+	vfork();
+用vfork创建的子进程，实际和父进程指向的是同一块物理内存；但vfork创建的子进程，只能调用_exit()或exec()，其它行为（如关闭一个文件）是未定义的。
+
+fork()是写时拷贝，只读时父子进程指向同一块空间。父子进程谁想写，谁去复制一份内存到其它空间。fork通过定时拷贝技术，基本将过去vfork的功能糅合进来了，所以vfork逐渐被废弃。	
+	
+	
+	
+3、进程的消亡及释放资源
+	wait();	和 waitpid();	等待进程状态发生变化
+	
+pid_t wait(int *status);//成功返回终止子进程的pid，将子进程的状态存储到status指向的内存。死等，是阻塞的。
+	
+pid_t waitpid(pid_t pid, int *status, int options);
+
+@params:
+	options是位图，如果有WNOHANG参数，函数变成非阻塞的。	
+	
+	pid: <-1，收进程组id为|-n|中的任何一个子进程 
+		  -1，收任何一个子进程
+		   0，收与当前进程同组的一个子进程
+		  >0，收指定pid号的子进程 
+		   	
+wait(&status)	equal to 	waitpid(-1,&status,0)
+如果只是要回收而不关心子进程的状态，也可以wait(NULL)。
+	
+了解：waitid(); wait3(); wait4();
+
+进程分配：
+①分块法
+②交叉分配（有可能进程拿到的数永远是某个数的倍数）
+③池（涉及到竞争）
+
+
+4、exec函数族
+bash
+	./primer2
+		./primer2
+		./primer2
+		...
+		201个
+		
+	所谓的父进程是bash创建的，为什么bash创建的子进程不叫bash。
+	
+exec函数族：用一个新的进程镜像替换当前的进程镜像
+
+变参：
+	execl();	//例：execl("/bin/date","date","+%s",NULL)
+	execlp();
+	execle();
+
+定参：	
+	execv();
+	execvp();	//例：execvp(globres.gl_pathv[0],globres.gl_pathv);
+
+int execl(const char *path, const char *arg, ...
+                       /* (char  *) NULL */);
+int execvp(const char *file, char *const argv[]);//文件名，和argv
+
+
+char *strsep(char **stringp, const char *delim);//根据指定分隔符（可以是" \t\n"）将串分隔
+
+
+5、用户权限及组权限
+
+执行某个命令时，是带着身份的。
+
+u+s权限：将root用户的权限打散，往下放。
+二进行文件的权限如果是u+s，则在文件执行时，它的身份会暂时切换成文件的user用户
+（如passwd，过去普通用户是无法更改自己的口令的。而现在本身普通用户虽然无法查看修改/etc/shadow，
+但普通用户却能通过passwd命令，修改自身的口令。就是通过将/usr/bin/passwd设置为u+s权限来实现的。）
+
+shell进程fork，exec出一个子进程passwd，子进程身份暂时切换成root执行，父进程shell等待回收子进程。
+
+g+s权限，，，类似
+
+函数：
+	getuid();//get real user id					geteuid();//get effective user id
+	getgid();									getegid();
+	setuid();//设置euid。						setgid();//设置egid
+	setreuid();//交换ruid和euid,且是原子化操作	setregid();
+
+给二进制可执行文件添加u+s权限：
+	将文件用户设置为root(sudo chown root xxx)，并添加u+s权限(sudo chmod u+s xxx)。
+
+6、观摩课：解释器文件
+
+脚本文件命令后辍不重要，文件开头要有#!/bin/bash
+
+开头指定解释器，#!后面的为解释器。
+
+脚本文件t.sh内容如下：
+#!/bin/bash
+
+ls
+whoami
+pwd
+
+./t.sh执行（需要执行权限）过程：
+将/bin/bash装载为解释器，再执行 /bin/bash t.sh，此时t.sh的开头为注释。
+
+解释器可以是任何二进制文件，如#!/bin/cat
+
+
+7、system();
+理解：fork+exec+wait的封装
+
+system(command); 近似于
+fork(); execl("/bin/sh", "sh", "-c", command, NULL); wait();的组合
+
+8、进程会计
+acct(); //方言，不遵循POSIX
+
+9、进程时间
+times(); //获取进程时间（systime,usertime），包括子进程的
+
+clock_t，滴答数，比秒更精确的计时单位。
+
+
+10、守护进程：一些服务需要一直在后台跑。
+
+	会话session，标识sid
+	终端
+	
+守护进程一般是一个会话的Leader，也是一个进程组的Leader。
+线程为单位的编程。进程实际就是容器。
+多线程是先有标准化，先把框框架架弄好，再在框架下实现并发内容。多线程并发比多进程并发更好控一些。
+
+一个session中存在多个进程，
+前台进程组，后台进程组。最多只有一个前台进程组，可以没有。只有前台进程组能使用标准输入输出。
+ 
+ 
+守护进程的特点：
+
+	setsid();//创建一个会话，并设置进程组ID。
+	只有子进程才能创建会话，调用方会成为新的会话的leader，会成为当前新的进程组的leader，
+	并脱离控制终端。
+
+	ps axj	
+	守护进程，tty为'?'，sid，pgid，pid相同。如果创建的子进程是守护进程，那么其父进程不会一直等，
+	所以守护进程的ppid为1。（ubuntu较新的发行版都用 upstart 代替 init 来收养孤儿进程。）
+
+
+int setpgid(pid_t pid, pid_t pgid);//将指定pid号的进程放到pgid进程组
+pid_t getpgid(pid_t pid);//返回指定pid号的进程的进程组id，为0时返回当前进程id
+
+pid_t getpgrp(void);//返回当前进程的进程组id，POSIX.1方言
+pid_t getpgrp(pid_t pid); //查看某个进程的进程组id，BSD方言
+
+
+单实例守护进程：锁文件/var/run/name.pid ,记录了某些守护进程的pid。
+（一些守护进程如sshd、rsyslogd，同一时间只能跑一份，利用锁文件来完成单实例守护进程的控制）
+启动脚本文件：/etc/rc*...，人为将某个守护进程添加到启动项
+
+
+11、系统日志文件
+	/var/log
+
+每个系统服务都有必要写系统日志，但我又不能让人人都写。权限分隔层。
+root将写系统日志的权限交给syslogd服务，所有要写系统日志的进程都将日志信息提交syslogd，
+由syslogd统一地接收、写系统日志。
+
+#include <syslog.h>
+	openlog(); 	//与syslog关联
+	syslog();	//提交
+	closelog();
+
+void openlog(const char *ident, int option, int facility);
+	ident：可以是任何字段，一般是程序名字
+	option：一些控制标志，如LOG_PID表示每条日志信息包含PID；LOG_PERROR表示同时将error信息打印到stderr。
+	facility：提交日志信息的服务类型，也可以说是日志信息来源；
+			  如LOG_DAEMON表示系统守护进程的日志，LOG_FTP表示是FTP的日志信息
+
+void syslog(int priority, const char *format, ...);
+	priority：是facility或上level的结果，level是级别，如LOG_ERR,LOG_WARNING,LOG_INFO
+	format：类似printf的格式，不用'\n'，因为我们只是提交信息，由syslogd服务实际写日志。
+
+/var/log/syslog记录了系统大部分日志信息
+/etc/rsyslog.conf为syslog配置文件，如约定level>LOG_INFO才往日志中写信息。	
+
+
+12、创建守护进程：
+（1）调用fork产生一个子进程，同时父进程退出，所有后续工作都在子进程中完成。
+
+（2）在子进程中创建新会话，使当前进程成为新会话组的组长。 
+
+使用setsid()函数，如果当前进程不是进程组的组长，则为当前进程创建一个新的会话期，使当前进程成为这个会话组的首进程，成为这个进程组的组长。 
+
+调用setsid有3个作用：
+    让进程摆脱原会话的控制；
+    让进程摆脱原进程组的控制；
+    让进程摆脱原控制终端的控制；
+总之，就是让调用进程完全独立出来，脱离所有其他进程的控制。
+
+
+（3）改变当前目录为根目录。 
+
+由于守护进程在后台运行，开始于系统开启，终止于系统关闭，所以要将其目录改为系统的根目录下。进程在执行时，其文件系统不能被卸下。 
+
+（4）重新设置文件权限掩码。 
+
+进程从父进程那里继承了文件创建掩码，所以可能会修改守护进程存取权限位，所以要将文件创建掩码清除，umask（0）； 
+
+（5）关闭文件描述符。 
+子进程从父进程那里继承了打开文件描述符。所以使用close即可关闭。需要指出的是，文件描述符为0、1和2的三个文件，也就是我们常说的输入、输出和报错这三个文件也需要被关闭。事实是，在上面的第2步后，我们的daemon进程已经与所属的控制终端失去了联系，我们从终端输入的字符不可能达到daemon进程，daemon进程用常规的方法（如printf）输出的字符也不可能在我们的终端上显示出来。
+
+在这里要用到getdtablesize()函数得到这个进程打开文件的数目。 
+

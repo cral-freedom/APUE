@@ -1,0 +1,264 @@
+文件系统
+
+类ls的实现，如myls -a -l -i -n
+
+一、目录和文件
+
+1、获取文件属性
+	stat：通过文件路径获取属性，如果是符号链接文件，会进行展开。
+	fstat：通过文件描述符获取属性
+	lstat：面对符号链接文件时获取的是符号链接文件的属性，不展开。
+
+命令行查看文件属性：ls path -l	/ stat path
+
+linux环境下，
+size可能小于，也可能大于block_size * blocks（后者才是文件真正占的磁盘空间，size是文件中的字符个数，包括空字符）
+cp支持空洞文件的拷贝
+
+七种文件类型：dcb-lsp
+	d --> 目录	c --> 字符设备文件	b --> 块设备文件
+	- --> 普通文件	l -->字符链接文件	s --> 网络套接字文件
+	p --> 命名管道文件
+	
+2、文件访问权限
+	st_mode是16位的位图，用于表示文件类型，文件访问权限，及特殊权限位。（低9位表示文件权限，高4位表示7种文件类型（考虑到以前扩展，就用了4位），9-11位为）
+
+3、umask
+	防止产生权限过松的文件
+
+4、文件权限的更改/管理
+命令行：chmod a+x file	//给所有用户（u,g,o）添加一个对该文件的执行权限
+函数： int chmod(const char *pathname, mode_t mode);
+       int fchmod(int fd, mode_t mode);
+
+
+5、粘住位
+	t位，原本是给二进制可执行文件设计的，在内存中保存它的使用痕迹，下次装载时比较快（现在不常用了）。
+	
+	
+6、文件系统：FAT、UFS
+文件或数据的存储和管理
+FAT：闭源，怕大文件，单链表，查询慢
+UFS：开源，不怕大文件
+
+7、硬链接，符号链接
+硬链接：ln file file_link，有两个文件名，指向同一个inode
+硬链接与目录项是同义词，且建立硬链接有限制：不能给分区建立，不能给目录建立。
+
+符号链接：ln -s file s_link,如同windows下的快捷方式，如果file被删除，则符号链接失效。
+符号链接优点：可跨分区，可以给目录建立。
+
+	link,unlink,remove,rename
+	
+8、utime：可以更改文件的最后读的时间和最后修改的时间
+
+9、目录的创建和销毁
+	mkdir
+	rmdir
+
+
+10、更改当前工作路径
+chdir, fchdir 修改工作路径；能够突破假根技术（安全机制）。
+getcwd获取当前工作路径
+
+11、分析目录/读取目录内容
+
+glob();	//解析通配符
+
+
+opendir();
+closedir();
+readdir();
+rewinddir();
+seekdir();
+telldir();
+
+
+printf("argc = %d",argc);	//命令行传参个数
+./main	*.c		得到argc >= 2, *是通配符。
+
+for(i=0;i<argc;i++)	//for(i=0; argv[i] != NULL; i++)
+	puts(argv[i]);
+
+文件目录项由文件ino和名字组成，目录文件的内容就是一条条目录项。
+
+
+mydu实现：
+char *strrchr(const char *s, int c);	定位字符串中的某个字符
+strrchr找最右边的某字符所在的位置
+FUNCTION:
+	The strrchr() function returns  a  pointer  to  the last occurrence of the character c in the string s.
+RETURN:
+	strrchr()  functions  return  a pointer to the matched character  or  NULL  if  the character  is not found. 
+
+
+
+
+二、系统数据文件和信息
+
+1、/etc/passwd
+不能人为地打开这个文件来获取字段，因为标准不一样，在其它版本的系统中不一定存在/etc/passwd。
+
+根据xx获取pwd字段
+	getpwuid();
+	getpwname();
+	
+2、/etc/group
+	getgrgid();
+	getgrnam();
+
+3、/etc/shadow
+
+hash  混淆	不可逆	如原串相同，所得串也相同，防备管理员监守自盗
+加密  -  解密
+加密： 安全 ：攻击成本 > 收益
+安全？ 穷举		口令随机校验（防脚本攻击）
+
+getspnam(); //通过user-name获取该用户的pwd字段。
+char *crypt(const char *key, const char *salt);
+//参数为输入的口令和杂串（其包括加密方式，crypt只当识别第三个$前的内容），返回经过加密后得到的串
+getspnam(); //参数为用户名，返回值为shadow当中的一行
+getpass();	////参数为提示符，返回值为输入的口令原文
+
+
+4、时间戳：time_t、char *、struct tm	
+	time();//获取当前的时间戳，
+	struct tm *localtime(const time_t *timep);//时间表示方式转换，time_t转换成结构体形式
+	time_t mktime(struct tm *tm); 结构体转换成时间戳，附加可以自动调整时间格式 
+	strftime();//strftime - format date and time
+
+time_t stamp;
+struct tm *tm;
+
+time(&stamp); 或 stamp = time(NULL);
+tm = localtime(&stamp);
+
+strftime(buf,BUFSIZE,"%Y-%m-%d",tm);//从结构体中按照一定的格式挑选字段，放到到buf中。
+
+puts(buf);
+
+
+
+
+三、进程环境
+
+1、main函数
+	int main(int argc, char *argv[])
+	
+2、进程的终止
+	正常终止：
+		从main函数返回
+		调用exit
+		调用_exit或_Exit
+		最后一个线程从其启动例程返回
+		最后一个线程调用pthread_exit
+	
+	异常终止：
+		调用abort
+		接到一个信号并终止
+		最后一个线程对其取消请求作出响应
+
+进程的返回值是给其父进程看的。
+
+atexit();//钩子函数，在进程正常终止（exit）之前会被调用。类似c++中的析构函数，最后关闭文件，释放资源或做其它处理。
+
+exit先执行钩子函数和IO清理，再执行_exit或_Eixt退出用户进程空间。
+
+出错了，什么都不敢动，调用_exit(1)，或abort()。
+
+
+3、命令行参数的分析
+	getopt();
+	getopt_long();
+
+ch=getopt(argc,argv,"-y:mdH:MS");//从命令行中获取选项，如果不是可选项中的字符，则返回-1；
+
+
+//如果optstring中字符后面跟着':'，则还可以传入选项参数
+case 'H':
+	 if(strcmp(optarg,"12") == 0)
+		 strcat(timeformat,"%I(%P) ");
+	 else if(strcmp(optarg,"24") == 0)
+		 strcat(timeformat,"%H ");
+	 else
+		 fprintf(stderr,"H argument invalid\n");
+	 break;
+	
+//optstring第一个字符为'-'，则返回1，进行识别非选项传参（如路径），文件名所对应的argv的下标为argind-1。
+//非选项参数有多个时的策略：①先入为主，要第一个，后面的不管；②后入为主，要最后一个；③全部都处理。
+	
+case 1  :
+	 if(fp == stdout)//当非选项参数有多个时先入为主，后面的不管
+	 {
+		 fp = fopen(argv[optind-1],"w");//无则创建，覆写
+		 if(fp == NULL)
+		 {   
+			 perror("fopen()");
+			 fp = stdout;
+		  }
+	 }
+	 break;
+
+
+4、环境变量
+	KEY = VALUE		//export查看所有环境变量
+	
+全局变量：extern char **environ;
+三个函数：
+	char *getenv(const char *name);
+	int setenv(const char *name, const char *value, int overwrite);
+	int unsetenv(const char *name);
+	
+setenv，如果新设置的value比较长，则会将旧value释放，将重新在堆上申请一块空间来存储value；存储空间发生变化。name不存在就添加，如果存在且支持overwrite，则覆写，否则保留原来的值。
+
+5、C程序的存储空间布局	
+	pmap 进程id		//查看存储空间
+
+6、库
+	动态库
+	静态库
+	手工装载库
+	dlopen();
+	dlclose();
+	dlerror();
+	dlsym();
+//gcc时要link -ldl
+
+void *赋给任何类型的指针都是天经地义的；任何类型的指针赋给void *也是天经地义的。//不对，有一种情况不适用（C99中，将void *转化为函数指针类型是未定义的。）
+
+
+7、函数跳转
+goto除了破坏代码结构性外，还有个缺陷，不能跨函数跳转：执行权交出去时，运行环境没变。
+
+在一棵树中查找一个节点等类似操作，经过复杂的步骤进来的，但是没有改变数据结构的内容，我要出去的话，其实不至于一层一层出去。
+类似上面的情况，我们需要一种像goto的机制来处理。
+
+为非本地goto保存堆栈上下文（可以安全地完成跨函数跳转）：
+
+int setjmp(jmp_buf env);//设置跳转点，如果是设置时返回0，如果是从longjmp过来的，返回val。
+void longjmp(jmp_buf env, int val);//跳转，带去一个val，不能为0
+	
+//有一种情况不能跳，要用到sigsetjmp();
+
+
+8、资源的获取及控制	
+
+命令：
+	ulimit -a 		//查看所有资源的上限
+	ulimit -n 512	//修改一个进程最多能打开文件的数目	
+	
+函数：
+	getrlimit();
+	setrlimit();
+//普通用户可以提高或降低软限制，可以降低硬限制但不能提高硬限制。
+
+
+
+
+
+
+
+
+
+
+

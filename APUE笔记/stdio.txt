@@ -1,0 +1,165 @@
+I/O: input&output，是一切实现的基础
+	stdio，标准io，移植性好，实质是依赖于sysio实现的
+	sysio，系统调用io（文件io）
+	
+stdio:	FILE类型贯穿始终
+	fopen	fclose	fgetc	fputc	fgets	fputs	fread	fwrite
+	printf	scanf	fseek	ftell	rewind	fflush
+
+	
+	
+1、fopen和fclose
+
+FILE *fopen(const char *path, const char *mode);
+mode:
+	r / r+	文件必须存在，不然会报错
+	w / w+ / a / a+ 文件如果不存在则创建
+	
+the 'b' is ignored on all PHSIX comforming systems, including linux.
+linux环境下只有一个流（stream）的概念。windows下有二进制流和文本流的区分。
+
+①The argument mode points to a string beginning with one of the following sequences.
+mode参数位置只能识别一个串开头的内容，如"readwrite"，只能看懂r；如"r+write"，只能看懂r+。
+
+
+②errno是一个全局变量，需要的话要包含<errno.h>的头文件，并及时打印。errno数字对应的错误信息在/usr/include/asm-generic/errno-base.h中可以查看。当然程序中可以用void perror(const char *s);或char *strerror(int errnum);来打印错误信息。
+
+③调用fopen创建FILE后返回其地址，问题：FILE结构体本身存放在哪
+	栈（F）	因为调用fopen后，局部变量会被释放
+	静态区（F）	因为静态变量，定义声明只有一次，只有一块空间，后面会被覆盖。
+	堆（T）	使用malloc创建新文件
+
+
+④一个进程能打开的文件数量最大为1024个，但为什么maxfopen程序中打印的是1021，因为进程已经默认打开了三个流（stdin,stdout,stderr）。
+ulimit -a可以查看系统限制。
+
+⑤ls -l tmp 查看fopen创建的文件权限，发现是664，fopen没有开放给用户去指定文件的权限，那664这个权限是怎么来的？
+依据的是一个公式 ： 0666 & ~umask	(权限中的数为8进制，最大值为'111')
+直接命令行输入umask，发现umask为0002
+
+
+
+2、fgets(buf,SIZE,stream)
+例如 
+#define SIZE 5
+char buf[SIZE];
+用fgets进行读取，有两种正常结束的情况：
+读到即size-1位置（因为最后要补'\0'），或读到'\n'（'\n'在文件中是默认存在的）
+①buf中为"abcdef"，则读到的内容为 a b c d '\0'
+②buf中为"ab"，则读到的内容为 a b '\n' '\0'
+③buf中为"abcd"，则需要读两次：
+	第一次，读到的内容为 a b c d '\0'
+	第二次，读到的内容为 '\n' '\0' ...
+
+
+3、fread/fwrite
+
+size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
+从stream中读nmemb个对象，每个对象size大小，读到ptr中
+返回值：成功读取的对象个数，为0时读取完毕
+
+要点：比较fread(buf,1,10,pf);与fread(buf,10,1,pf);
+①数量足够多
+②只有5个字节
+
+fread(buf,1,10,pf)
+① 返回10	成功读到10个字节
+② 返回5		成功读到5个字节
+
+fread(buf,10,1,pf)
+① 返回1		读到10个字节
+② 返回0		读到多少字节？？？(0~9字节都返回0)	
+
+fread 和 fwrite 都只能对操作工工整整的数据对象，中间不能出错。
+保险起见，永远采用单字节来操作，即当作fgetc和fputc来用。
+
+
+用fread和fwrite实现mycpy：
+    while( (n = fread(buf,1,BUFSIZE,pfs)) > 0 ) 
+        fwrite(buf,1,n,pfd);
+		
+4、fprintf
+
+int  fprintf(FILE  *stream,  const  char  *format,
+       ...);
+//把...这些输出项放到format的指定格式中，然后把它们放到指定的stream中去
+//printf();即是将指定格式的内容输出到stdout中去
+
+sprintf可以将多种不同的数据综合成一个串来处理
+int snprintf(char *str, size_t  size,  const  char
+       *format, ...);//size是str的大小，用于防范内存溢出
+
+5、fseek、ftell、rewind
+
+int fseek(FILE *stream, long offset, int whence);
+long ftell(FILE *stream);
+因为ftell返回不会为负，所以fseek，ftell能操作（定位）的文件最大容量为2G
+
+fseeko能操作4G的文件，但它遵循POSIX（方言），移植性不如fseek（遵循C99）
+
+fseek函数参数：
+whence有三个设置可选SEEK_SET,SEEK_CUR,SEEK_END
+offset是在whence基础上的偏移，可正可负
+
+ftell返回当前位置偏移
+
+运用：获取文件大小
+fseek(pf,0,SEEK_END);
+printf("%ld\n",ftell(pf));
+
+rewind(pf) 相当于 fseek(pf,0L,SEEK_SET); //文件位置指针回到文件开头
+
+空洞文件：刚建立下载任务时创建的文件，一开始的大小就是要下载文件的大小，先用fseek将磁盘占了先，内容全为空字符。然后再建立多线程任务进行下载。
+
+
+6、fflush
+
+int fflush(FILE *stream);
+强制刷新指定的stream，如果参数为NULL，则刷新所有打开的stream。
+
+缓冲区的作用：大多数情况下是好事，合并系统调用
+①行缓冲：换行'\n'时刷新，满了的时间刷新，强制刷新（标准输出是这样的，因为是终端设备）
+②全缓冲：满了的时候刷新，强制刷新（默认，只要不是终端设备）
+③无缓冲：如stderr，需要立即输出
+
+
+（了解）文件的缓冲模式是可以改的，setvbuf函数；一般不会用到。
+
+
+
+7、补充 getline
+从问题出发：上述函数都不能让我们完整地读一行
+ssize_t getline(char **lineptr, size_t *n, FILE *str
+eam);
+n是为buf申请的空间大小。返回值为读取到的字节个数。
+
+getline会malloc一段空间给lineptr，不够再用relloc扩展空间
+这里*lineptr一定要初始化!!! getline需要根据*lineptr判断用malloc还是relloc。
+
+不足：
+getline最初都是GNU扩展。它们在POSIX.1-2008标准化。
+getline申请过内存，所以需要释放。
+
+
+8、临时文件：有一些数据需要临时保存或分析
+
+问题：1、如何不冲突 2、及时销毁
+	char *tmpnam(char *s);	（申请一个名字）
+	
+冲突：
+	在并发时有两个进程A,B，A用tmpnam申请一个名字后没有及时用fopen进行创建，这时时间片耗尽，B进程运行，
+	它也要为临时文件申请一个名字，申请到的名字和A相同。两个进程申请到了相同的文件名，谁先创建谁倒霉，
+	它们用fopen创建文件时传入的参数肯定不是r，所以，后来的进程会对文件进行覆写或修改。
+（tmpnam+fopen 没法安全地创建临时文件）
+
+
+	FILE *tmpfile(void);	（创建一个临时文件）
+tmpfile创建的临时文件，是一个匿名文件（没有名字），文件有创建和打开，但在磁盘上看不见（用ls -a也看不见）。
+	
+
+
+
+
+
+
+
